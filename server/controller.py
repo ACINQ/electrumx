@@ -19,7 +19,7 @@ from functools import partial
 import pylru
 
 from lib.jsonrpc import JSONSessionBase, RPCError
-from lib.hash import double_sha256, hash_to_str, hex_str_to_hash
+from lib.hash import sha256, double_sha256, hash_to_str, hex_str_to_hash, hash_to_str
 from lib.peer import Peer
 from lib.server_base import ServerBase
 import lib.util as util
@@ -778,7 +778,16 @@ class Controller(ServerBase):
     async def scripthash_get_history(self, scripthash):
         '''Return the confirmed and unconfirmed history of a scripthash.'''
         hashX = self.scripthash_to_hashX(scripthash)
-        return await self.confirmed_and_unconfirmed_history(hashX)
+        self.log_warning('scripthash_get_history scripthash={} hashX={}'.format(scripthash, hashX))
+        script1 = bytes([0, 32]) + hex_str_to_hash(scripthash)
+        self.log_warning('script1={}'.format(hash_to_str(script1)))
+        scripthash1 = sha256(script1)
+        self.log_warning('scripthash1={}'.format(hash_to_str(scripthash1)))
+        hashX1 = self.scripthash_to_hashX(hash_to_str(scripthash1))
+        self.log_warning('hashX1={}'.format(hashX1))
+        first =  await self.confirmed_and_unconfirmed_history(hashX)
+        second = await self.confirmed_and_unconfirmed_history(hashX1)
+        return first + second
 
     async def address_get_mempool(self, address):
         '''Return the mempool transactions touching an address.'''
