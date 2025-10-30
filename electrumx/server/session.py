@@ -30,7 +30,7 @@ import electrumx
 from electrumx.lib.merkle import MerkleCache
 from electrumx.lib.text import sessions_lines
 import electrumx.lib.util as util
-from electrumx.lib.hash import (sha256, hash_to_hex_str, hex_str_to_hash,
+from electrumx.lib.hash import (sha256, hash_to_hex_str, hex_str_to_hash, 
                                 HASHX_LEN, Base58Error)
 from electrumx.server.daemon import DaemonError
 from electrumx.server.peers import PeerManager
@@ -1108,7 +1108,16 @@ class ElectrumX(SessionBase):
     async def scripthash_get_history(self, scripthash):
         '''Return the confirmed and unconfirmed history of a scripthash.'''
         hashX = scripthash_to_hashX(scripthash)
-        return await self.confirmed_and_unconfirmed_history(hashX)
+        self.log_warning('scripthash_get_history scripthash={} hashX={}'.format(scripthash, hashX))
+        script1 = bytes([0, 32]) + hex_str_to_hash(scripthash)
+        self.log_warning('script1={}'.format(hash_to_hex_str(script1)))
+        scripthash1 = sha256(script1)
+        self.log_warning('scripthash1={}'.format(hash_to_hex_str(scripthash1)))
+        hashX1 = self.scripthash_to_hashX(hash_to_hex_str(scripthash1))
+        self.log_warning('hashX1={}'.format(hashX1))
+        first =  await self.confirmed_and_unconfirmed_history(hashX)
+        second = await self.confirmed_and_unconfirmed_history(hashX1)
+        return first + second
 
     async def scripthash_get_mempool(self, scripthash):
         '''Return the mempool transactions touching a scripthash.'''
