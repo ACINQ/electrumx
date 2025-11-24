@@ -14,6 +14,7 @@ import json
 import math
 import os
 import ssl
+import struct
 import time
 from collections import defaultdict
 from functools import partial
@@ -366,8 +367,20 @@ class SessionManager:
         '''
         # Paranoia: a reorg could race and leave db_height lower
         height = min(height, self.db.db_height)
-        raw = await self.raw_header(height)
-        self.hsub_results = {'hex': raw.hex(), 'height': height}
+        header = await self.raw_header(height)
+        version, = struct.unpack('<I', header[:4])
+        timestamp, bits, nonce = struct.unpack('<III', header[68:80])
+        self.hsub_results = {
+          'height': height,
+          'block_height': height,
+          'version': version,
+          'prev_block_hash': hash_to_hex_str(header[4:36]),
+          'merkle_root': hash_to_hex_str(header[36:68]),
+          'timestamp': timestamp,
+          'bits': bits,
+          'nonce': nonce,
+          'hex': header.hex()
+        } 
         self.notified_height = height
 
     def _session_references(self, items, special_strings):
@@ -894,7 +907,7 @@ class SessionBase(RPCSession):
 class ElectrumX(SessionBase):
     '''A TCP server that handles incoming Electrum connections.'''
 
-    PROTOCOL_MIN = (1, 4)
+    PROTOCOL_MIN = (1, 1)
     PROTOCOL_MAX = (1, 4, 2)
 
     def __init__(self, *args, **kwargs):
@@ -1108,13 +1121,13 @@ class ElectrumX(SessionBase):
     async def scripthash_get_history(self, scripthash):
         '''Return the confirmed and unconfirmed history of a scripthash.'''
         hashX = scripthash_to_hashX(scripthash)
-        self.log_warning('scripthash_get_history scripthash={} hashX={}'.format(scripthash, hashX))
+        self.logger.warning('scripthash_get_history scripthash={} hashX={}'.format(scripthash, hashX))
         script1 = bytes([0, 32]) + hex_str_to_hash(scripthash)
-        self.log_warning('script1={}'.format(hash_to_hex_str(script1)))
+        self.logger.warning('script1={}'.format(hash_to_hex_str(script1)))
         scripthash1 = sha256(script1)
-        self.log_warning('scripthash1={}'.format(hash_to_hex_str(scripthash1)))
-        hashX1 = self.scripthash_to_hashX(hash_to_hex_str(scripthash1))
-        self.log_warning('hashX1={}'.format(hashX1))
+        self.logger.warning('scripthash1={}'.format(hash_to_hex_str(scripthash1)))
+        hashX1 = scripthash_to_hashX(hash_to_hex_str(scripthash1))
+        self.logger.warning('hashX1={}'.format(hashX1))
         first =  await self.confirmed_and_unconfirmed_history(hashX)
         second = await self.confirmed_and_unconfirmed_history(hashX1)
         return first + second
@@ -1161,13 +1174,24 @@ class ElectrumX(SessionBase):
         dictionary with a merkle proof.'''
         height = non_negative_integer(height)
         cp_height = non_negative_integer(cp_height)
-        raw_header_hex = (await self.session_mgr.raw_header(height)).hex()
+        header = await self.session_mgr.raw_header(height)
+        raw_header_hex = header.hex()
         self.bump_cost(1.25 - (cp_height == 0))
-        if cp_height == 0:
-            return raw_header_hex
-        result = {'header': raw_header_hex}
-        result.update(await self._merkle_proof(cp_height, height))
-        return result
+        #if cp_height == 0:
+        #    return raw_header_hex
+        #result = {'header': raw_header_hex}
+        #result.update(await self._merkle_proof(cp_height, height))
+        version, = struct.unpack('<I', header[:4])
+        timestamp, bits, nonce = struct.unpack('<III', header[68:80])
+        return {
+            'block_height': height,
+            'version': version,
+            'prev_block_hash': hash_to_hex_str(header[4:36]),
+            'merkle_root': hash_to_hex_str(header[36:68]),
+            'timestamp': timestamp,
+            'bits': bits,
+            'nonce': nonce,
+        }
 
     async def block_headers(self, start_height, count, cp_height=0):
         '''Return count concatenated block headers as hex for the main chain;
@@ -1293,7 +1317,7 @@ class ElectrumX(SessionBase):
         ptuple, client_min = util.protocol_version(
             protocol_version, self.PROTOCOL_MIN, self.PROTOCOL_MAX)
 
-        await self.crash_old_client(ptuple, self.env.coin.CRASH_CLIENT_VER)
+        # await self.crash_old_client(ptuple, self.env.coin.CRASH_CLIENT_VER)
 
         if ptuple is None:
             if client_min > self.PROTOCOL_MIN:
@@ -1406,7 +1430,7 @@ class ElectrumX(SessionBase):
         self.protocol_tuple = ptuple
 
         handlers = {
-            'blockchain.block.header': self.block_header,
+            'blockchain.block.get_header': self.block_header,
             'blockchain.block.headers': self.block_headers,
             'blockchain.estimatefee': self.estimatefee,
             'blockchain.headers.subscribe': self.headers_subscribe,
